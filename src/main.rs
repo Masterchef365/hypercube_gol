@@ -5,7 +5,7 @@ use rand::prelude::*;
 type Opt = usize;
 
 fn main() -> Result<()> {
-    let dims = if std::env::args().len() == 2 { 3 } else { 4 };
+    let dims = if std::env::args().len() == 2 { 5 } else { 4 };
     launch::<_, GolCubeVisualizer>(Settings::default().args(dims))
 }
 
@@ -42,7 +42,7 @@ impl App<Opt> for GolCubeVisualizer {
         let cube_vertices = inner_float_vertices(gol_cube.faces(), gol_cube.width(), cube_scale);
         let d3_inner_verts: Vec<Vertex> = cube_vertices
             .into_iter()
-            .map(|v| project_4_to_3(v, projection_scale))
+            .map(|v| project_5_to_3(v, projection_scale))
             .map(|pos| Vertex {
                 pos,
                 color: pos.map(|v| v.max(0.05)),
@@ -53,7 +53,7 @@ impl App<Opt> for GolCubeVisualizer {
         // Lines
         let line_verts: Vec<Vertex> = vertices(n_dims).into_iter().map(|pos_nd| {
             Vertex {
-                pos: project_4_to_3(vertex_to_float(pos_nd, cube_scale), projection_scale),
+                pos: project_5_to_3(vertex_to_float(pos_nd, cube_scale), projection_scale),
                 color: [1.; 3]
             }
         }).collect();
@@ -119,7 +119,7 @@ impl App<Opt> for GolCubeVisualizer {
     }
 }
 
-const MAX_DIMS: usize = 4;
+const MAX_DIMS: usize = 5;
 type DimensionBits = u8;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -131,8 +131,8 @@ pub struct Face {
     pub bits: DimensionBits,
 }
 
-pub fn project_4_to_3([x, y, z, w, ..]: [f32; MAX_DIMS], scale: f32) -> [f32; 3] {
-    [x, y, z].map(|v: f32| v * (1. - w * scale))
+pub fn project_5_to_3([x, y, z, w, v, ..]: [f32; MAX_DIMS], scale: f32) -> [f32; 3] {
+    [x, y, z].map(|value: f32| value * (1. - w * scale) + v)
 }
 
 /// Float vertices for mesh rendering
