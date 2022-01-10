@@ -12,8 +12,11 @@ fn main() -> Result<()> {
 struct GolCubeVisualizer {
     verts: VertexBuffer,
     indices: IndexBuffer,
-    points_shader: Shader,
     camera: MultiPlatformCamera,
+
+    line_verts: VertexBuffer,
+    line_indices: IndexBuffer,
+    lines_shader: Shader,
 
     gol_cube: GolHypercube,
     frame: usize,
@@ -21,20 +24,25 @@ struct GolCubeVisualizer {
 
 impl App<Opt> for GolCubeVisualizer {
     fn init(ctx: &mut Context, platform: &mut Platform, n_dims: Opt) -> Result<Self> {
-        let mut gol_cube = GolHypercube::new(n_dims, 25);
+        let mut gol_cube = GolHypercube::new(n_dims, 50);
 
         let mut rng = rand::thread_rng();
 
+        // Random gen
         for face in gol_cube.front_data_mut() {
             for item in &mut face.data {
-                *item = rng.gen_bool(0.1);
+                *item = rng.gen_bool(0.2);
             }
         }
 
-        let vertices = inner_float_vertices(gol_cube.faces(), gol_cube.width(), 1.);
-        let d3_inner_verts: Vec<Vertex> = vertices
+        let projection_scale = 0.3;
+        let cube_scale = 1.;
+
+        // Cube
+        let cube_vertices = inner_float_vertices(gol_cube.faces(), gol_cube.width(), cube_scale);
+        let d3_inner_verts: Vec<Vertex> = cube_vertices
             .into_iter()
-            .map(|v| project_4_to_3(v, 0.3))
+            .map(|v| project_4_to_3(v, projection_scale))
             .map(|pos| Vertex {
                 pos,
                 color: [1.; 3],
@@ -42,16 +50,28 @@ impl App<Opt> for GolCubeVisualizer {
             .collect();
         let indices = golcube_tri_indices(&gol_cube);
 
+        // Lines
+        let line_verts: Vec<Vertex> = vertices(n_dims).into_iter().map(|pos_nd| {
+            Vertex {
+                pos: project_4_to_3(vertex_to_float(pos_nd, cube_scale), projection_scale),
+                color: [0., 1., 1.],
+            }
+        }).collect();
+
+        let line_indices: Vec<u32> = line_indices(n_dims).map(|i| i as u32).collect();
+
         Ok(Self {
             gol_cube,
-            points_shader: ctx.shader(
+            lines_shader: ctx.shader(
                 DEFAULT_VERTEX_SHADER,
                 DEFAULT_FRAGMENT_SHADER,
-                Primitive::Triangles,
+                Primitive::Lines,
             )?,
             verts: ctx.vertices(&d3_inner_verts, false)?,
             indices: ctx.indices(&indices, true)?,
             camera: MultiPlatformCamera::new(platform),
+            line_verts: ctx.vertices(&line_verts, false)?,
+            line_indices: ctx.indices(&line_indices, true)?,
             frame: 0,
         })
     }
@@ -66,10 +86,14 @@ impl App<Opt> for GolCubeVisualizer {
 
         self.frame += 1;
 
-        Ok(vec![DrawCmd::new(self.verts)
+        Ok(vec![
+            DrawCmd::new(self.verts)
             .limit(indices.len() as _)
-            .indices(self.indices)
-            .shader(self.points_shader)])
+            .indices(self.indices),
+            DrawCmd::new(self.line_verts)
+            .indices(self.line_indices)
+            .shader(self.lines_shader),
+        ])
     }
 
     fn event(
@@ -466,3 +490,29 @@ pub fn overindex_face(
         }
     }
 }
+
+/// Line indices
+fn line_indices(n_dims: usize) -> impl Iterator<Item = DimensionBits> {
+    (0..n_dims)
+        .map(move |dim| {
+            let mask = DimensionBits::MAX << dim;
+            (0..1 << (n_dims - 1)).map(move |combo| {
+                let high_bits = (combo & mask) << 1;
+                let low_bits = combo & !mask;
+                (0..=1).map(move |bit| high_bits | (bit << dim) | low_bits)
+            })
+        })
+        .flatten()
+        .flatten()
+}
+
+/// Create a float version of the given vertex
+fn vertex_to_float(vertex: DimensionBits, scale: f32) -> [f32; MAX_DIMS] {
+    let mut out = [0.0; MAX_DIMS];
+    out.iter_mut()
+        .zip(iter_bits_low_to_high(vertex))
+        .for_each(|(o, bit)| *o = if bit { scale } else { -scale });
+    out
+}
+
+
