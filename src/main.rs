@@ -1,12 +1,58 @@
 use anyhow::Result;
 use idek::{prelude::*, IndexBuffer, MultiPlatformCamera};
 use rand::prelude::*;
+use structopt::StructOpt;
 
-type Opt = usize;
+#[derive(StructOpt, Default)]
+#[structopt(name = "Conway's Game of Life on da cube", about = "what do you think")]
+struct Opt {
+    /// Visualize in VR
+    #[structopt(short, long)]
+    vr: bool,
+
+    /// Cube width/side length
+    #[structopt(short, long, default_value = "25")]
+    width: usize,
+
+    /// update interval
+    #[structopt(short, long, default_value = "1")]
+    interval: usize,
+
+    /// Fill percentage for the initial value
+    #[structopt(short, long, default_value = "0.25")]
+    rand_p: f64,
+
+    /// Seed. If unspecified, random seed
+    #[structopt(short, long)]
+    seed: Option<u64>,
+
+    /// Number of dimensions
+    #[structopt(short, long, default_value = "4")]
+    n_dims: usize,
+
+
+    /*
+    /// The missing values on corners are true instead of false if this is set
+    #[structopt(long)]
+    corner_true: bool,
+
+    /// Import a PNG image, supercedes width
+    #[structopt(long)]
+    import: Option<PathBuf>,
+
+    /// Export a PNG image on quit
+    #[structopt(long)]
+    export: Option<PathBuf>,
+
+    /// Use white tiles
+    #[structopt(long)]
+    white: bool,
+    */
+}
 
 fn main() -> Result<()> {
-    let dims = if std::env::args().len() == 2 { 5 } else { 4 };
-    launch::<_, GolCubeVisualizer>(Settings::default().args(dims))
+    let opt = Opt::from_args();
+    launch::<Opt, GolCubeVisualizer>(Settings::default().vr(opt.vr).args(opt))
 }
 
 struct GolCubeVisualizer {
@@ -18,20 +64,25 @@ struct GolCubeVisualizer {
     line_indices: IndexBuffer,
     lines_shader: Shader,
 
+    opt: Opt,
     gol_cube: GolHypercube,
     frame: usize,
 }
 
 impl App<Opt> for GolCubeVisualizer {
-    fn init(ctx: &mut Context, platform: &mut Platform, n_dims: Opt) -> Result<Self> {
-        let mut gol_cube = GolHypercube::new(n_dims, 50);
+    fn init(ctx: &mut Context, platform: &mut Platform, opt: Opt) -> Result<Self> {
+        assert!(opt.n_dims >= 3 && opt.n_dims <= 5);
 
-        let mut rng = rand::thread_rng();
+        let mut gol_cube = GolHypercube::new(opt.n_dims, opt.width);
+
+        let seed = opt.seed.unwrap_or_else(|| rand::thread_rng().gen());
+        println!("Using seed {}", seed);
+        let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
 
         // Random gen
         for face in gol_cube.front_data_mut() {
             for item in &mut face.data {
-                *item = rng.gen_bool(0.1);
+                *item = rng.gen_bool(opt.rand_p);
             }
         }
 
@@ -51,16 +102,18 @@ impl App<Opt> for GolCubeVisualizer {
         let indices = golcube_tri_indices(&gol_cube);
 
         // Lines
-        let line_verts: Vec<Vertex> = vertices(n_dims).into_iter().map(|pos_nd| {
+        let line_verts: Vec<Vertex> = vertices(opt.n_dims).into_iter().map(|pos_nd| {
             Vertex {
                 pos: project_5_to_3(vertex_to_float(pos_nd, cube_scale), projection_scale),
                 color: [1.; 3]
             }
         }).collect();
 
-        let line_indices: Vec<u32> = line_indices(n_dims).map(|i| i as u32).collect();
+        let line_indices: Vec<u32> = line_indices(opt.n_dims).map(|i| i as u32).collect();
+
 
         Ok(Self {
+            opt,
             gol_cube,
             lines_shader: ctx.shader(
                 DEFAULT_VERTEX_SHADER,
@@ -80,7 +133,7 @@ impl App<Opt> for GolCubeVisualizer {
         let indices = golcube_tri_indices(&self.gol_cube);
         ctx.update_indices(self.indices, &indices)?;
 
-        if self.frame % 50 == 0 {
+        if self.frame % self.opt.interval == 0 {
             self.gol_cube.step();
         }
 
