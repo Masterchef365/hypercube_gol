@@ -18,12 +18,13 @@ struct GolCubeVisualizer {
 
 impl App for GolCubeVisualizer {
     fn init(ctx: &mut Context, platform: &mut Platform, _: ()) -> Result<Self> {
-        let mut gol_cube = GolHypercube::new(3, 25);
+        let mut gol_cube = GolHypercube::new(4, 25);
 
         let width = gol_cube.width();
         for face in gol_cube.front_data_mut() {
             for i in 0..width {
                 face[(i, i)] = true;
+                face[(width - i - 1, i)] = true;
             }
         }
 
@@ -98,7 +99,7 @@ pub struct Face {
 }
 
 pub fn project_4_to_3([x, y, z, w, ..]: [f32; MAX_DIMS], scale: f32) -> [f32; 3] {
-    [x + scale * w, y + scale * w, z + scale * w]
+    [x, y, z].map(|v: f32| v * (1. - w * scale))
 }
 
 /// Float vertices for mesh rendering
