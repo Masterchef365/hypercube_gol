@@ -1,9 +1,12 @@
 use anyhow::Result;
 use idek::{prelude::*, IndexBuffer, MultiPlatformCamera};
-//use rand::prelude::*;
+use rand::prelude::*;
+
+type Opt = usize;
 
 fn main() -> Result<()> {
-    launch::<_, GolCubeVisualizer>(Settings::default())
+    let dims = if std::env::args().len() == 2 { 3 } else { 4 };
+    launch::<_, GolCubeVisualizer>(Settings::default().args(dims))
 }
 
 struct GolCubeVisualizer {
@@ -13,42 +16,20 @@ struct GolCubeVisualizer {
     camera: MultiPlatformCamera,
 
     gol_cube: GolHypercube,
-    //frame: usize,
+    frame: usize,
 }
 
-impl App for GolCubeVisualizer {
-    fn init(ctx: &mut Context, platform: &mut Platform, _: ()) -> Result<Self> {
-        let mut gol_cube = GolHypercube::new(3, 25);
+impl App<Opt> for GolCubeVisualizer {
+    fn init(ctx: &mut Context, platform: &mut Platform, n_dims: Opt) -> Result<Self> {
+        let mut gol_cube = GolHypercube::new(n_dims, 25);
 
-        let width = gol_cube.width();
-        let faces = gol_cube.faces.clone();
+        let mut rng = rand::thread_rng();
 
-        let (u, v) = (0, 0);
-        for du in -1..=1 {
-            for dv in -1..=1 {
-                gol_cube.overindex_set(u + du, v + dv, 0, true);
+        for face in gol_cube.front_data_mut() {
+            for item in &mut face.data {
+                *item = rng.gen_bool(0.1);
             }
         }
-
-        /*
-        for face_idx in 0..faces.len() {
-            for i in 0..width as i32 {
-                gol_cube.overindex_set(i, 2, face_idx, true);
-                if i % 2 == 0 {
-                    gol_cube.overindex_set(2, i, face_idx, true);
-                }
-                /*face[(i, 2)] = true;
-                if i % 2 == 0 {
-                    face[(2, i)] = true;
-                }
-                */
-                /*
-                face[(i, i)] = true;
-                face[(width - i - 1, i)] = true;
-                */
-            }
-        }
-        */
 
         let vertices = inner_float_vertices(gol_cube.faces(), gol_cube.width(), 1.);
         let d3_inner_verts: Vec<Vertex> = vertices
@@ -71,13 +52,19 @@ impl App for GolCubeVisualizer {
             verts: ctx.vertices(&d3_inner_verts, false)?,
             indices: ctx.indices(&indices, true)?,
             camera: MultiPlatformCamera::new(platform),
-            //frame: 0,
+            frame: 0,
         })
     }
 
     fn frame(&mut self, ctx: &mut Context, _: &mut Platform) -> Result<Vec<DrawCmd>> {
         let indices = golcube_tri_indices(&self.gol_cube);
         ctx.update_indices(self.indices, &indices)?;
+
+        if self.frame % 50 == 0 {
+            self.gol_cube.step();
+        }
+
+        self.frame += 1;
 
         Ok(vec![DrawCmd::new(self.verts)
             .limit(indices.len() as _)
@@ -274,16 +261,24 @@ impl GolHypercube {
         }
     }
 
-    pub fn overindex<'a>(&'a self, u: i32, v: i32, face_sel: usize) -> impl Iterator<Item=bool> + 'a {
+    pub fn overindex<'a>(
+        &'a self,
+        u: i32,
+        v: i32,
+        face_sel: usize,
+    ) -> impl Iterator<Item = bool> + 'a {
         let indices = overindex_face(u, v, face_sel, &self.faces, self.width);
-        indices.into_iter().map(move |(face_idx, (u, v))| self.front[face_idx][(u as usize, v as usize)])
+        indices
+            .into_iter()
+            .map(move |(face_idx, (u, v))| self.front[face_idx][(u as usize, v as usize)])
     }
 
     pub fn overindex_set<'a>(&'a mut self, u: i32, v: i32, face_sel: usize, set: bool) {
         let indices = overindex_face(u, v, face_sel, &self.faces, self.width);
-        indices.into_iter().for_each(move |(face_idx, (u, v))| self.front[face_idx][(u as usize, v as usize)] = set)
+        indices.into_iter().for_each(move |(face_idx, (u, v))| {
+            self.back[face_idx][(u as usize, v as usize)] = set
+        })
     }
-
 
     pub fn faces(&self) -> &[Face] {
         &self.faces
@@ -299,6 +294,37 @@ impl GolHypercube {
 
     pub fn front_data_mut(&mut self) -> &mut [Square2DArray<bool>] {
         &mut self.front
+    }
+
+    pub fn step(&mut self) {
+        let n_faces = self.faces().len();
+        let width = self.width();
+
+        for face_idx in 0..n_faces {
+            for u in 0..width {
+                for v in 0..width {
+                    let mut neighbors = 0;
+                    for du in -1..=1 {
+                        for dv in -1..=1 {
+                            if (du, dv) != (0, 0) {
+                                let cells =
+                                    self.overindex(u as i32 + du, v as i32 + dv, face_idx);
+                                for cell in cells {
+                                    neighbors += cell as u32;
+                                }
+                            }
+                        }
+                    }
+                    let center = self.front_data()[face_idx][(u as usize, v as usize)];
+
+                    let result = extended_gol_rules(center, neighbors);
+
+                    self.overindex_set(u as i32, v as i32, face_idx, result);
+                }
+            }
+        }
+
+        std::mem::swap(&mut self.front, &mut self.back);
     }
 }
 
@@ -366,9 +392,9 @@ pub fn overindex_face(
     faces: &[Face],
     width: usize,
 ) -> Vec<(usize, (i32, i32))> {
-    let in_bounds = |x: i32| x < 0 || x >= width as i32;
+    let out_of_bounds = |x: i32| x < 0 || x >= width as i32;
 
-    match (in_bounds(u), in_bounds(v)) {
+    match (out_of_bounds(u), out_of_bounds(v)) {
         // Indexing past a corner
         (true, true) => vec![],
         // In bounds
@@ -414,7 +440,7 @@ pub fn overindex_face(
                             (
                                 in_bounds_val,
                                 if check_bit(overindexed_face.bits, face.v_dim) {
-                                    width as _
+                                    (width - 1) as _
                                 } else {
                                     0
                                 },
@@ -425,7 +451,7 @@ pub fn overindex_face(
                             idx,
                             (
                                 if check_bit(overindexed_face.bits, face.u_dim) {
-                                    width as _
+                                    (width - 1) as _
                                 } else {
                                     0
                                 },
