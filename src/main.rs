@@ -18,34 +18,37 @@ struct GolCubeVisualizer {
 
 impl App for GolCubeVisualizer {
     fn init(ctx: &mut Context, platform: &mut Platform, _: ()) -> Result<Self> {
-        let mut gol_cube = GolHypercube::new(4, 25);
+        let mut gol_cube = GolHypercube::new(3, 25);
 
         let width = gol_cube.width();
         let faces = gol_cube.faces.clone();
 
-        /*
         let (u, v) = (0, 0);
         for du in -1..=1 {
-            for dv in 1..=1 {
-                for (face_idx, (su, sv)) in overindex_face(u + du, v + dv, 0, &faces, width) {
-                    gol_cube.front_data_mut()[face_idx][(su as _, sv as _)] = true;
-                }
+            for dv in -1..=1 {
+                gol_cube.overindex_set(u + du, v + dv, 0, true);
             }
         }
-        */
 
-        for face in gol_cube.front_data_mut() {
-            for i in 0..width {
-                face[(i, 2)] = true;
+        /*
+        for face_idx in 0..faces.len() {
+            for i in 0..width as i32 {
+                gol_cube.overindex_set(i, 2, face_idx, true);
+                if i % 2 == 0 {
+                    gol_cube.overindex_set(2, i, face_idx, true);
+                }
+                /*face[(i, 2)] = true;
                 if i % 2 == 0 {
                     face[(2, i)] = true;
                 }
+                */
                 /*
                 face[(i, i)] = true;
                 face[(width - i - 1, i)] = true;
                 */
             }
         }
+        */
 
         let vertices = inner_float_vertices(gol_cube.faces(), gol_cube.width(), 1.);
         let d3_inner_verts: Vec<Vertex> = vertices
@@ -132,7 +135,7 @@ pub fn inner_float_vertices(faces: &[Face], width: usize, scale: f32) -> Vec<[f3
 
         out.iter_mut()
             .zip(iter_bits_low_to_high(face.bits))
-            .for_each(|(o, bit)| *o = if bit { -scale } else { scale });
+            .for_each(|(o, bit)| *o = if bit { scale } else { -scale });
 
         for v in 0..=width {
             out[face.v_dim] = idx_to_pos(v);
@@ -270,6 +273,17 @@ impl GolHypercube {
             width,
         }
     }
+
+    pub fn overindex<'a>(&'a self, u: i32, v: i32, face_sel: usize) -> impl Iterator<Item=bool> + 'a {
+        let indices = overindex_face(u, v, face_sel, &self.faces, self.width);
+        indices.into_iter().map(move |(face_idx, (u, v))| self.front[face_idx][(u as usize, v as usize)])
+    }
+
+    pub fn overindex_set<'a>(&'a mut self, u: i32, v: i32, face_sel: usize, set: bool) {
+        let indices = overindex_face(u, v, face_sel, &self.faces, self.width);
+        indices.into_iter().for_each(move |(face_idx, (u, v))| self.front[face_idx][(u as usize, v as usize)] = set)
+    }
+
 
     pub fn faces(&self) -> &[Face] {
         &self.faces
