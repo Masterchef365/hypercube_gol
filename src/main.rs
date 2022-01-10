@@ -31,7 +31,7 @@ impl App<Opt> for GolCubeVisualizer {
         // Random gen
         for face in gol_cube.front_data_mut() {
             for item in &mut face.data {
-                *item = rng.gen_bool(0.2);
+                *item = rng.gen_bool(0.1);
             }
         }
 
@@ -45,7 +45,7 @@ impl App<Opt> for GolCubeVisualizer {
             .map(|v| project_4_to_3(v, projection_scale))
             .map(|pos| Vertex {
                 pos,
-                color: [1.; 3],
+                color: pos.map(|v| v.max(0.05)),
             })
             .collect();
         let indices = golcube_tri_indices(&gol_cube);
@@ -54,7 +54,7 @@ impl App<Opt> for GolCubeVisualizer {
         let line_verts: Vec<Vertex> = vertices(n_dims).into_iter().map(|pos_nd| {
             Vertex {
                 pos: project_4_to_3(vertex_to_float(pos_nd, cube_scale), projection_scale),
-                color: [0., 1., 1.],
+                color: [1.; 3]
             }
         }).collect();
 
