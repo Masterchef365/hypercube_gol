@@ -21,10 +21,29 @@ impl App for GolCubeVisualizer {
         let mut gol_cube = GolHypercube::new(4, 25);
 
         let width = gol_cube.width();
+        let faces = gol_cube.faces.clone();
+
+        /*
+        let (u, v) = (0, 0);
+        for du in -1..=1 {
+            for dv in 1..=1 {
+                for (face_idx, (su, sv)) in overindex_face(u + du, v + dv, 0, &faces, width) {
+                    gol_cube.front_data_mut()[face_idx][(su as _, sv as _)] = true;
+                }
+            }
+        }
+        */
+
         for face in gol_cube.front_data_mut() {
             for i in 0..width {
+                face[(i, 2)] = true;
+                if i % 2 == 0 {
+                    face[(2, i)] = true;
+                }
+                /*
                 face[(i, i)] = true;
                 face[(width - i - 1, i)] = true;
+                */
             }
         }
 
@@ -105,7 +124,9 @@ pub fn project_4_to_3([x, y, z, w, ..]: [f32; MAX_DIMS], scale: f32) -> [f32; 3]
 /// Float vertices for mesh rendering
 pub fn inner_float_vertices(faces: &[Face], width: usize, scale: f32) -> Vec<[f32; MAX_DIMS]> {
     let idx_to_pos = |i: usize| scale * ((i as f32 / width as f32) * 2. - 1.);
+
     let mut output = vec![];
+
     for face in faces {
         let mut out = [0.0; MAX_DIMS];
 
@@ -195,7 +216,6 @@ fn golcube_tri_indices(cube: &GolHypercube) -> Vec<u32> {
     let mut indices = vec![];
     let idx_stride = cube.width as u32 + 1;
 
-    let face_data_stride = cube.width * cube.width;
     let face_idx_stride = idx_stride * idx_stride;
 
     for (face_idx, face) in cube.front_data().iter().enumerate() {
@@ -268,6 +288,14 @@ impl GolHypercube {
     }
 }
 
+fn extended_gol_rules(center: bool, neighbors: u32) -> bool {
+    match (center, neighbors) {
+        (true, n) if (n == 2 || n == 3) => true,
+        (false, n) if (n == 3) => true,
+        _ => false,
+    }
+}
+
 #[derive(Clone)]
 pub struct Square2DArray<T> {
     width: usize,
@@ -313,5 +341,88 @@ impl<T> std::ops::IndexMut<(usize, usize)> for Square2DArray<T> {
     fn index_mut(&mut self, pos: (usize, usize)) -> &mut T {
         let idx = self.calc_index(pos);
         &mut self.data[idx]
+    }
+}
+
+/// Index into a face `face_sel` from faces, possibly beyond width (in which case possibly several faces can be returned!
+pub fn overindex_face(
+    u: i32,
+    v: i32,
+    face_sel: usize,
+    faces: &[Face],
+    width: usize,
+) -> Vec<(usize, (i32, i32))> {
+    let in_bounds = |x: i32| x < 0 || x >= width as i32;
+
+    match (in_bounds(u), in_bounds(v)) {
+        // Indexing past a corner
+        (true, true) => vec![],
+        // In bounds
+        (false, false) => vec![(face_sel, (u, v))],
+        // Out of bounds
+        (u_out_of_bounds, _) => {
+            // Find all faces which:
+            // * Index using the in bounds dim
+            // * Don't index using the out of bounds dim
+            // * Have the bit corresponding to the out of bounds dim set to
+            // out_bounds_sign(out_of_bounds_dim)
+            // * And index into that face so that the in bounds dim is the same, and the out of
+            // bounds dim is towards the original face
+            let overindexed_face = faces[face_sel];
+            let (out_bounds_dim, in_bounds_dim, out_bounds_sign, in_bounds_val) =
+                match u_out_of_bounds {
+                    true => (overindexed_face.u_dim, overindexed_face.v_dim, u > 0, v),
+                    false => (overindexed_face.v_dim, overindexed_face.u_dim, v > 0, u),
+                };
+
+            // For each other face
+            faces
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, face)| {
+                    // Check that the bit for the dims of the given face is set the same as the out of bounds dim's sign
+                    if check_bit(face.bits, out_bounds_dim) != out_bounds_sign {
+                        return None;
+                    }
+                    //dbg!(face.u_dim, face.v_dim, in_bounds_dim, out_bounds_dim, out_bounds_sign);
+
+                    // Make sure the only dimensions/bits that change are the ones involved
+                    let check_mask = (1 << out_bounds_dim) | (1 << face.u_dim) | (1 << face.v_dim);
+                    if !check_mask & (face.bits ^ overindexed_face.bits) != 0 {
+                        return None;
+                    }
+
+                    // Construct indexing information using the out of bounds sign, and the in
+                    // bounds position
+                    if face.u_dim == in_bounds_dim && face.v_dim != out_bounds_dim {
+                        Some((
+                            idx,
+                            (
+                                in_bounds_val,
+                                if check_bit(overindexed_face.bits, face.v_dim) {
+                                    width as _
+                                } else {
+                                    0
+                                },
+                            ),
+                        ))
+                    } else if face.v_dim == in_bounds_dim && face.u_dim != out_bounds_dim {
+                        Some((
+                            idx,
+                            (
+                                if check_bit(overindexed_face.bits, face.u_dim) {
+                                    width as _
+                                } else {
+                                    0
+                                },
+                                in_bounds_val,
+                            ),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
     }
 }
