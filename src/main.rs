@@ -28,7 +28,14 @@ impl App for GolCubeVisualizer {
         }
 
         let vertices = inner_float_vertices(gol_cube.faces(), gol_cube.width(), 1.);
-        let d3_inner_verts: Vec<Vertex> = vertices.into_iter().map(|v| project_4_to_3(v, 0.3)).map(|pos| Vertex { pos, color: [1.; 3] }).collect();
+        let d3_inner_verts: Vec<Vertex> = vertices
+            .into_iter()
+            .map(|v| project_4_to_3(v, 0.3))
+            .map(|pos| Vertex {
+                pos,
+                color: [1.; 3],
+            })
+            .collect();
         let indices = golcube_tri_indices(&gol_cube);
 
         Ok(Self {
@@ -71,9 +78,7 @@ impl App for GolCubeVisualizer {
                     ..
                 }),
                 Platform::Winit { control_flow, .. },
-            ) => {
-                **control_flow = idek::winit::event_loop::ControlFlow::Exit
-            }
+            ) => **control_flow = idek::winit::event_loop::ControlFlow::Exit,
             _ => (),
         }
         Ok(())
@@ -102,7 +107,11 @@ pub fn inner_float_vertices(faces: &[Face], width: usize, scale: f32) -> Vec<[f3
     let mut output = vec![];
     for face in faces {
         let mut out = [0.0; MAX_DIMS];
-        out.iter_mut().zip(iter_bits_low_to_high(face.bits)).for_each(|(o, bit)| *o = if bit { scale } else { 0. });
+
+        out.iter_mut()
+            .zip(iter_bits_low_to_high(face.bits))
+            .for_each(|(o, bit)| *o = if bit { -scale } else { scale });
+
         for v in 0..=width {
             out[face.v_dim] = idx_to_pos(v);
             for u in 0..=width {
@@ -200,11 +209,7 @@ fn golcube_tri_indices(cube: &GolHypercube) -> Vec<u32> {
             for (x, &elem) in row.iter().enumerate() {
                 let elem_idx = row_base + x as u32;
                 if elem {
-                    backface([
-                        elem_idx + idx_stride, 
-                        elem_idx + 1, 
-                        elem_idx
-                    ]);
+                    backface([elem_idx + idx_stride, elem_idx + 1, elem_idx]);
 
                     backface([
                         elem_idx + idx_stride,
@@ -232,7 +237,9 @@ impl GolHypercube {
 
         let faces = faces(n_dims);
 
-        let front: Vec<Square2DArray<bool>> = (0..faces.len()).map(|_| Square2DArray::new(width)).collect();
+        let front: Vec<Square2DArray<bool>> = (0..faces.len())
+            .map(|_| Square2DArray::new(width))
+            .collect();
         let back = front.clone();
 
         Self {
@@ -270,13 +277,13 @@ impl<T> Square2DArray<T> {
     pub fn from_array(width: usize, data: Vec<T>) -> Self {
         assert!(data.len() % width == 0);
         assert!(data.len() / width == width);
-        Self {
-            width,
-            data,
-        }
+        Self { width, data }
     }
 
-    pub fn new(width: usize) -> Self where T: Default + Copy {
+    pub fn new(width: usize) -> Self
+    where
+        T: Default + Copy,
+    {
         Self {
             width,
             data: vec![T::default(); width * width],
