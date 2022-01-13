@@ -145,9 +145,8 @@ impl App<Opt> for GolCubeVisualizer {
         })
     }
 
-    fn frame(&mut self, ctx: &mut Context, _: &mut Platform) -> Result<Vec<DrawCmd>> {
+    fn frame(&mut self, ctx: &mut Context, platform: &mut Platform) -> Result<Vec<DrawCmd>> {
         // Cube
-
         let cube_vertices = golcube_vertices(
             &self.gol_cube,
             1.,
@@ -167,6 +166,22 @@ impl App<Opt> for GolCubeVisualizer {
         }
 
         self.frame += 1;
+
+        let trans = if platform.is_vr() {
+            [
+                [1., 0., 0., 0.],
+                [0., 1., 0., 0.],
+                [0., 0., 1., 0.],
+                [0., 1., 0., 1.],
+            ]
+        } else {
+            [
+                [1., 0., 0., 0.],
+                [0., 1., 0., 0.],
+                [0., 0., 1., 0.],
+                [0., 0., 0., 1.],
+            ]
+        };
 
         Ok(vec![
             DrawCmd::new(self.verts)
