@@ -108,7 +108,6 @@ impl App<Opt> for GolCubeVisualizer {
             (0..gol_cube.faces().len() * (gol_cube.width + 1) * (gol_cube.width + 1) * 3 * 2 * 2)
                 .map(|_| 0)
                 .collect();
-        dbg!(cube_indices.len(), cube_vertices.len());
 
         // Lines
         let line_verts: Vec<Vertex> = vertices(opt.n_dims)
@@ -151,7 +150,6 @@ impl App<Opt> for GolCubeVisualizer {
             |v| [v; 3],
         );
         let cube_indices = golcube_tri_indices(&self.gol_cube);
-        dbg!(cube_indices.len(), cube_vertices.len());
         ctx.update_vertices(self.verts, &cube_vertices)?;
         ctx.update_indices(self.indices, &cube_indices)?;
 
@@ -370,9 +368,9 @@ fn golcube_tri_indices(cube: &GolHypercube) -> Vec<u32> {
 }
 
 pub struct GolHypercube {
-    front: Vec<Square2DArray<f32>>,
-    back: Vec<Square2DArray<f32>>,
-    prev: Vec<Square2DArray<f32>>,
+    latest_state: Vec<Square2DArray<f32>>,
+    next_state: Vec<Square2DArray<f32>>,
+    prev_state: Vec<Square2DArray<f32>>,
 
     faces: Vec<Face>,
     width: usize,
@@ -391,9 +389,9 @@ impl GolHypercube {
         let prev = front.clone();
 
         Self {
-            prev,
-            front,
-            back,
+            prev_state: prev,
+            latest_state: front,
+            next_state: back,
             faces,
             width,
         }
@@ -408,14 +406,14 @@ impl GolHypercube {
         let indices = overindex_face(u, v, face_sel, &self.faces, self.width);
         indices
             .into_iter()
-            .map(move |(face_idx, (u, v))| self.front[face_idx][(u as usize, v as usize)])
+            .map(move |(face_idx, (u, v))| self.latest_state[face_idx][(u as usize, v as usize)])
     }
 
     pub fn overindex_set<'a>(&'a mut self, u: i32, v: i32, face_sel: usize, set: f32) {
         let indices = overindex_face(u, v, face_sel, &self.faces, self.width);
         indices
             .into_iter()
-            .for_each(move |(face_idx, (u, v))| self.prev[face_idx][(u as usize, v as usize)] = set)
+            .for_each(move |(face_idx, (u, v))| self.next_state[face_idx][(u as usize, v as usize)] = set)
     }
 
     pub fn faces(&self) -> &[Face] {
@@ -427,37 +425,31 @@ impl GolHypercube {
     }
 
     pub fn front_data(&self) -> &[Square2DArray<f32>] {
-        &self.front
+        &self.latest_state
     }
 
     pub fn front_data_mut(&mut self) -> &mut [Square2DArray<f32>] {
-        &mut self.front
+        &mut self.latest_state
     }
 
     pub fn step(&mut self, init: bool) {
         let n_faces = self.faces().len();
         let width = self.width();
 
-        let c = 0.5; // Courant number
+        let c = 0.05; // Courant number
 
         for face_idx in 0..n_faces {
             for u in 0..width {
                 for v in 0..width {
-                    let center = self.front[face_idx][(u, v)];
-                    let prev = self.prev[face_idx][(u, v)];
+                    let center = self.latest_state[face_idx][(u, v)];
+                    let prev = self.prev_state[face_idx][(u, v)];
 
-                    let in_center = u == width / 2 && v == width / 2;
                     let (u, v) = (u as i32, v as i32);
                     let up: f32 = avg_iter(self.overindex(u, v + 1, face_idx));
                     let down: f32 = avg_iter(self.overindex(u, v - 1, face_idx));
 
                     let right: f32 = avg_iter(self.overindex(u + 1, v, face_idx));
                     let left: f32 = avg_iter(self.overindex(u - 1, v, face_idx));
-
-                    if in_center {
-                        dbg!(prev, center, up, down, right, left);
-                        eprintln!();
-                    }
 
 
                     let ddy = up - 2. * center + down;
@@ -476,8 +468,8 @@ impl GolHypercube {
         }
 
         // Prev should be the oldest copy after this operation
-        std::mem::swap(&mut self.front, &mut self.prev);
-        std::mem::swap(&mut self.prev, &mut self.back)
+        std::mem::swap(&mut self.latest_state, &mut self.next_state);
+        std::mem::swap(&mut self.prev_state, &mut self.next_state);
     }
 }
 
