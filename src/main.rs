@@ -29,8 +29,6 @@ struct Opt {
     /// Number of dimensions
     #[structopt(short, long, default_value = "4")]
     n_dims: usize,
-
-
     /*
     /// The missing values on corners are true instead of false if this is set
     #[structopt(long)]
@@ -64,6 +62,8 @@ struct GolCubeVisualizer {
     line_indices: IndexBuffer,
     lines_shader: Shader,
 
+    projection_scale: f32,
+
     opt: Opt,
     gol_cube: GolHypercube,
     frame: usize,
@@ -79,10 +79,18 @@ impl App<Opt> for GolCubeVisualizer {
         println!("Using seed {}", seed);
         let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
 
-        // Random gen
-        for face in gol_cube.front_data_mut() {
-            for item in &mut face.data {
-                *item = rng.gen_bool(opt.rand_p);
+        // Fill part of one face
+        for (idx, face) in gol_cube.front_data_mut().iter_mut().enumerate() {
+            if idx == 0 {
+                let width = face.width;
+                for (y, row) in face.data.chunks_exact_mut(width).enumerate() {
+                    for (x, elem) in row.iter_mut().enumerate() {
+                        let test = |v: usize| v > width / 4 && v < 3 * width / 4;
+                        if test(x) && test(y) {
+                            *elem = 1.0;
+                        }
+                    }
+                }
             }
         }
 
@@ -90,29 +98,30 @@ impl App<Opt> for GolCubeVisualizer {
         let cube_scale = 1.;
 
         // Cube
-        let cube_vertices = inner_float_vertices(gol_cube.faces(), gol_cube.width(), cube_scale);
-        let d3_inner_verts: Vec<Vertex> = cube_vertices
-            .into_iter()
-            .map(|v| project_5_to_3(v, projection_scale))
-            .map(|pos| Vertex {
-                pos,
-                color: pos.map(|v| v.max(0.05)),
-            })
-            .collect();
-        let indices = golcube_tri_indices(&gol_cube);
+        let cube_vertices = golcube_vertices(
+            &gol_cube, 
+            1.,
+            |v| project_5_to_3(v, projection_scale),
+            |v| [v; 3],
+        );
+        let cube_indices = golcube_tri_indices(&gol_cube);
+        dbg!(cube_indices.len(), cube_vertices.len());
 
         // Lines
-        let line_verts: Vec<Vertex> = vertices(opt.n_dims).into_iter().map(|pos_nd| {
-            Vertex {
+        let line_verts: Vec<Vertex> = vertices(opt.n_dims)
+            .into_iter()
+            .map(|pos_nd| Vertex {
                 pos: project_5_to_3(vertex_to_float(pos_nd, cube_scale), projection_scale),
-                color: [1.; 3]
-            }
-        }).collect();
+                color: [1.; 3],
+            })
+            .collect();
 
         let line_indices: Vec<u32> = line_indices(opt.n_dims).map(|i| i as u32).collect();
 
+        gol_cube.step(true);
 
         Ok(Self {
+            projection_scale,
             opt,
             gol_cube,
             lines_shader: ctx.shader(
@@ -120,8 +129,8 @@ impl App<Opt> for GolCubeVisualizer {
                 DEFAULT_FRAGMENT_SHADER,
                 Primitive::Lines,
             )?,
-            verts: ctx.vertices(&d3_inner_verts, false)?,
-            indices: ctx.indices(&indices, true)?,
+            verts: ctx.vertices(&cube_vertices, true)?,
+            indices: ctx.indices(&cube_indices, true)?,
             camera: MultiPlatformCamera::new(platform),
             line_verts: ctx.vertices(&line_verts, false)?,
             line_indices: ctx.indices(&line_indices, true)?,
@@ -130,22 +139,32 @@ impl App<Opt> for GolCubeVisualizer {
     }
 
     fn frame(&mut self, ctx: &mut Context, _: &mut Platform) -> Result<Vec<DrawCmd>> {
-        let indices = golcube_tri_indices(&self.gol_cube);
-        ctx.update_indices(self.indices, &indices)?;
+        // Cube
+
+        let cube_vertices = golcube_vertices(
+            &self.gol_cube, 
+            1.,
+            |v| project_5_to_3(v, self.projection_scale),
+            |v| [v; 3],
+        );
+        let cube_indices = golcube_tri_indices(&self.gol_cube);
+        dbg!(cube_indices.len(), cube_vertices.len());
+        ctx.update_vertices(self.verts, &cube_vertices)?;
+        ctx.update_indices(self.indices, &cube_indices)?;
 
         if self.frame % self.opt.interval == 0 {
-            self.gol_cube.step();
+            self.gol_cube.step(false);
         }
 
         self.frame += 1;
 
         Ok(vec![
             DrawCmd::new(self.verts)
-            .limit(indices.len() as _)
-            .indices(self.indices),
+                .limit(cube_indices.len() as _)
+                .indices(self.indices),
             DrawCmd::new(self.line_verts)
-            .indices(self.line_indices)
-            .shader(self.lines_shader),
+                .indices(self.line_indices)
+                .shader(self.lines_shader),
         ])
     }
 
@@ -186,6 +205,41 @@ pub struct Face {
 
 pub fn project_5_to_3([x, y, z, w, v, ..]: [f32; MAX_DIMS], scale: f32) -> [f32; 3] {
     [x, y, z].map(|value: f32| value * (1. - w * scale) + v)
+}
+
+/// Float vertices for mesh rendering
+pub fn golcube_vertices(
+    cube: &GolHypercube,
+    scale: f32,
+    project: impl Fn([f32; MAX_DIMS]) -> [f32; 3],
+    color: fn(f32) -> [f32; 3],
+) -> Vec<Vertex> {
+    let width = cube.width;
+    let idx_to_pos = |i: usize| scale * ((i as f32 / width as f32) * 2. - 1.);
+
+    let mut output = vec![];
+
+    for (face, data) in cube.faces().iter().zip(cube.front_data()) {
+        let mut pos_nd = [0.0; MAX_DIMS];
+
+        pos_nd
+            .iter_mut()
+            .zip(iter_bits_low_to_high(face.bits))
+            .for_each(|(o, bit)| *o = if bit { scale } else { -scale });
+
+        for v in 0..=width {
+            pos_nd[face.v_dim] = idx_to_pos(v);
+            for u in 0..=width {
+                pos_nd[face.u_dim] = idx_to_pos(u);
+
+                output.push(Vertex {
+                    pos: project(pos_nd),
+                    color: color(data[(u.min(width-1), v.min(width-1))]),
+                });
+            }
+        }
+    }
+    output
 }
 
 /// Float vertices for mesh rendering
@@ -296,7 +350,7 @@ fn golcube_tri_indices(cube: &GolHypercube) -> Vec<u32> {
             let row_base = face_base + y as u32 * idx_stride;
             for (x, &elem) in row.iter().enumerate() {
                 let elem_idx = row_base + x as u32;
-                if elem {
+                //if elem.abs() > 0.01 {
                     backface([elem_idx + idx_stride, elem_idx + 1, elem_idx]);
 
                     backface([
@@ -304,7 +358,7 @@ fn golcube_tri_indices(cube: &GolHypercube) -> Vec<u32> {
                         elem_idx + idx_stride + 1,
                         elem_idx + 1,
                     ]);
-                }
+                //}
             }
         }
     }
@@ -313,8 +367,10 @@ fn golcube_tri_indices(cube: &GolHypercube) -> Vec<u32> {
 }
 
 pub struct GolHypercube {
-    front: Vec<Square2DArray<bool>>,
-    back: Vec<Square2DArray<bool>>,
+    front: Vec<Square2DArray<f32>>,
+    back: Vec<Square2DArray<f32>>,
+    prev: Vec<Square2DArray<f32>>,
+
     faces: Vec<Face>,
     width: usize,
 }
@@ -325,12 +381,14 @@ impl GolHypercube {
 
         let faces = faces(n_dims);
 
-        let front: Vec<Square2DArray<bool>> = (0..faces.len())
+        let front: Vec<Square2DArray<f32>> = (0..faces.len())
             .map(|_| Square2DArray::new(width))
             .collect();
         let back = front.clone();
+        let prev = front.clone();
 
         Self {
+            prev,
             front,
             back,
             faces,
@@ -343,18 +401,18 @@ impl GolHypercube {
         u: i32,
         v: i32,
         face_sel: usize,
-    ) -> impl Iterator<Item = bool> + 'a {
+    ) -> impl Iterator<Item = f32> + 'a {
         let indices = overindex_face(u, v, face_sel, &self.faces, self.width);
         indices
             .into_iter()
             .map(move |(face_idx, (u, v))| self.front[face_idx][(u as usize, v as usize)])
     }
 
-    pub fn overindex_set<'a>(&'a mut self, u: i32, v: i32, face_sel: usize, set: bool) {
+    pub fn overindex_set<'a>(&'a mut self, u: i32, v: i32, face_sel: usize, set: f32) {
         let indices = overindex_face(u, v, face_sel, &self.faces, self.width);
-        indices.into_iter().for_each(move |(face_idx, (u, v))| {
-            self.back[face_idx][(u as usize, v as usize)] = set
-        })
+        indices
+            .into_iter()
+            .for_each(move |(face_idx, (u, v))| self.prev[face_idx][(u as usize, v as usize)] = set)
     }
 
     pub fn faces(&self) -> &[Face] {
@@ -365,43 +423,51 @@ impl GolHypercube {
         self.width
     }
 
-    pub fn front_data(&self) -> &[Square2DArray<bool>] {
+    pub fn front_data(&self) -> &[Square2DArray<f32>] {
         &self.front
     }
 
-    pub fn front_data_mut(&mut self) -> &mut [Square2DArray<bool>] {
+    pub fn front_data_mut(&mut self) -> &mut [Square2DArray<f32>] {
         &mut self.front
     }
 
-    pub fn step(&mut self) {
+    pub fn step(&mut self, init: bool) {
         let n_faces = self.faces().len();
         let width = self.width();
+
+        let c = 0.5; // Courant number
 
         for face_idx in 0..n_faces {
             for u in 0..width {
                 for v in 0..width {
-                    let mut neighbors = 0;
-                    for du in -1..=1 {
-                        for dv in -1..=1 {
-                            if (du, dv) != (0, 0) {
-                                let cells =
-                                    self.overindex(u as i32 + du, v as i32 + dv, face_idx);
-                                for cell in cells {
-                                    neighbors += cell as u32;
-                                }
-                            }
-                        }
-                    }
-                    let center = self.front_data()[face_idx][(u as usize, v as usize)];
+                    let center = self.front[face_idx][(u, v)];
+                    let prev = self.prev[face_idx][(u, v)];
 
-                    let result = extended_gol_rules(center, neighbors);
+                    let (u, v) = (u as i32, v as i32);
+                    let up: f32 = self.overindex(u, v + 1, face_idx).sum();
+                    let down: f32 = self.overindex(u, v - 1, face_idx).sum();
 
-                    self.overindex_set(u as i32, v as i32, face_idx, result);
+                    let right: f32 = self.overindex(u + 1, v, face_idx).sum();
+                    let left: f32 = self.overindex(u - 1, v, face_idx).sum();
+
+                    let ddy = up - 2. * center + down;
+                    let ddx = right - 2. * center + left;
+
+                    // n = 1 special case
+                    let next = if init {
+                        center - 0.5 * c * (ddy + ddx)
+                    } else {
+                        -prev + 2. * center + 0.5 * c * (ddy + ddx)
+                    };
+
+                    self.overindex_set(u as i32, v as i32, face_idx, next);
                 }
             }
         }
 
-        std::mem::swap(&mut self.front, &mut self.back);
+        // Prev should be the oldest copy after this operation
+        std::mem::swap(&mut self.front, &mut self.prev);
+        std::mem::swap(&mut self.prev, &mut self.back)
     }
 }
 
@@ -567,5 +633,3 @@ fn vertex_to_float(vertex: DimensionBits, scale: f32) -> [f32; MAX_DIMS] {
         .for_each(|(o, bit)| *o = if bit { scale } else { -scale });
     out
 }
-
-
