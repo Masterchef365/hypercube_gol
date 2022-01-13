@@ -99,12 +99,15 @@ impl App<Opt> for GolCubeVisualizer {
 
         // Cube
         let cube_vertices = golcube_vertices(
-            &gol_cube, 
+            &gol_cube,
             1.,
             |v| project_5_to_3(v, projection_scale),
             |v| [v; 3],
         );
-        let cube_indices = golcube_tri_indices(&gol_cube);
+        let cube_indices: Vec<u32> =
+            (0..gol_cube.faces().len() * (gol_cube.width + 1) * (gol_cube.width + 1) * 3 * 2 * 2)
+                .map(|_| 0)
+                .collect();
         dbg!(cube_indices.len(), cube_vertices.len());
 
         // Lines
@@ -142,7 +145,7 @@ impl App<Opt> for GolCubeVisualizer {
         // Cube
 
         let cube_vertices = golcube_vertices(
-            &self.gol_cube, 
+            &self.gol_cube,
             1.,
             |v| project_5_to_3(v, self.projection_scale),
             |v| [v; 3],
@@ -234,7 +237,7 @@ pub fn golcube_vertices(
 
                 output.push(Vertex {
                     pos: project(pos_nd),
-                    color: color(data[(u.min(width-1), v.min(width-1))]),
+                    color: color(data[(u.min(width - 1), v.min(width - 1))]),
                 });
             }
         }
@@ -350,7 +353,7 @@ fn golcube_tri_indices(cube: &GolHypercube) -> Vec<u32> {
             let row_base = face_base + y as u32 * idx_stride;
             for (x, &elem) in row.iter().enumerate() {
                 let elem_idx = row_base + x as u32;
-                //if elem.abs() > 0.01 {
+                if elem.abs() > 0.01 {
                     backface([elem_idx + idx_stride, elem_idx + 1, elem_idx]);
 
                     backface([
@@ -358,7 +361,7 @@ fn golcube_tri_indices(cube: &GolHypercube) -> Vec<u32> {
                         elem_idx + idx_stride + 1,
                         elem_idx + 1,
                     ]);
-                //}
+                }
             }
         }
     }
@@ -443,12 +446,19 @@ impl GolHypercube {
                     let center = self.front[face_idx][(u, v)];
                     let prev = self.prev[face_idx][(u, v)];
 
+                    let in_center = u == width / 2 && v == width / 2;
                     let (u, v) = (u as i32, v as i32);
-                    let up: f32 = self.overindex(u, v + 1, face_idx).sum();
-                    let down: f32 = self.overindex(u, v - 1, face_idx).sum();
+                    let up: f32 = avg_iter(self.overindex(u, v + 1, face_idx));
+                    let down: f32 = avg_iter(self.overindex(u, v - 1, face_idx));
 
-                    let right: f32 = self.overindex(u + 1, v, face_idx).sum();
-                    let left: f32 = self.overindex(u - 1, v, face_idx).sum();
+                    let right: f32 = avg_iter(self.overindex(u + 1, v, face_idx));
+                    let left: f32 = avg_iter(self.overindex(u - 1, v, face_idx));
+
+                    if in_center {
+                        dbg!(prev, center, up, down, right, left);
+                        eprintln!();
+                    }
+
 
                     let ddy = up - 2. * center + down;
                     let ddx = right - 2. * center + left;
@@ -468,6 +478,15 @@ impl GolHypercube {
         // Prev should be the oldest copy after this operation
         std::mem::swap(&mut self.front, &mut self.prev);
         std::mem::swap(&mut self.prev, &mut self.back)
+    }
+}
+
+fn avg_iter(i: impl Iterator<Item=f32>) -> f32 {
+    let (sum, n) = i.fold((0., 0), |(sum, n), x| (sum + x, n + 1));
+    if n == 0 {
+        return 0.0;
+    } else {
+        sum / n as f32
     }
 }
 
