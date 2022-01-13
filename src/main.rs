@@ -99,7 +99,7 @@ impl App<Opt> for GolCubeVisualizer {
                 color: pos.map(|v| v.max(0.05)),
             })
             .collect();
-        let indices = golcube_tri_indices(&gol_cube);
+        let indices: Vec<u32> = (0..gol_cube.faces().len() * gol_cube.width * gol_cube.width * 3 * 4).map(|_| 0).collect();
 
         // Lines
         let line_verts: Vec<Vertex> = vertices(opt.n_dims).into_iter().map(|pos_nd| {
@@ -129,7 +129,7 @@ impl App<Opt> for GolCubeVisualizer {
         })
     }
 
-    fn frame(&mut self, ctx: &mut Context, _: &mut Platform) -> Result<Vec<DrawCmd>> {
+    fn frame(&mut self, ctx: &mut Context, platform: &mut Platform) -> Result<Vec<DrawCmd>> {
         let indices = golcube_tri_indices(&self.gol_cube);
         ctx.update_indices(self.indices, &indices)?;
 
@@ -139,13 +139,31 @@ impl App<Opt> for GolCubeVisualizer {
 
         self.frame += 1;
 
+        let trans = if platform.is_vr() {
+            [
+                [1., 0., 0., 0.],
+                [0., 1., 0., 0.],
+                [0., 0., 1., 0.],
+                [0., 1., 0., 1.],
+            ]
+        } else {
+            [
+                [1., 0., 0., 0.],
+                [0., 1., 0., 0.],
+                [0., 0., 1., 0.],
+                [0., 0., 0., 1.],
+            ]
+        };
+
         Ok(vec![
             DrawCmd::new(self.verts)
             .limit(indices.len() as _)
-            .indices(self.indices),
+            .indices(self.indices)
+            .transform(trans),
             DrawCmd::new(self.line_verts)
             .indices(self.line_indices)
-            .shader(self.lines_shader),
+            .shader(self.lines_shader)
+            .transform(trans),
         ])
     }
 
