@@ -172,7 +172,7 @@ impl App<Opt> for GolCubeVisualizer {
                 [1., 0., 0., 0.],
                 [0., 1., 0., 0.],
                 [0., 0., 1., 0.],
-                [0., 1., 0., 1.],
+                [0., 1.5, 0., 1.],
             ]
         } else {
             [
@@ -186,10 +186,12 @@ impl App<Opt> for GolCubeVisualizer {
         Ok(vec![
             DrawCmd::new(self.verts)
                 .limit(cube_indices.len() as _)
-                .indices(self.indices),
+                .indices(self.indices)
+                .transform(trans),
             DrawCmd::new(self.line_verts)
                 .indices(self.line_indices)
-                .shader(self.lines_shader),
+                .shader(self.lines_shader)
+                .transform(trans),
         ])
     }
 
