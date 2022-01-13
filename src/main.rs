@@ -147,9 +147,13 @@ impl App<Opt> for GolCubeVisualizer {
             &self.gol_cube,
             1.,
             |v| project_5_to_3(v, self.projection_scale),
-            |v| [v; 3],
+            |v| if v > 0. {
+                [v, v * 0.05, v * 0.05]
+            } else {
+                [-v * 0.05, -v * 0.35, -v]
+            }
         );
-        let cube_indices = golcube_tri_indices(&self.gol_cube);
+        let cube_indices = golcube_tri_indices(&self.gol_cube, 0.05);
         ctx.update_vertices(self.verts, &cube_vertices)?;
         ctx.update_indices(self.indices, &cube_indices)?;
 
@@ -334,7 +338,7 @@ fn vertices(n_dims: usize) -> impl Iterator<Item = DimensionBits> {
     0..=DimensionBits::MAX >> (DimensionBits::BITS.checked_sub(n_dims as u32).unwrap())
 }
 
-fn golcube_tri_indices(cube: &GolHypercube) -> Vec<u32> {
+fn golcube_tri_indices(cube: &GolHypercube, vis_thresh: f32) -> Vec<u32> {
     let mut indices = vec![];
     let idx_stride = cube.width as u32 + 1;
 
@@ -351,7 +355,7 @@ fn golcube_tri_indices(cube: &GolHypercube) -> Vec<u32> {
             let row_base = face_base + y as u32 * idx_stride;
             for (x, &elem) in row.iter().enumerate() {
                 let elem_idx = row_base + x as u32;
-                if elem.abs() > 0.01 {
+                if elem.abs() > vis_thresh {
                     backface([elem_idx + idx_stride, elem_idx + 1, elem_idx]);
 
                     backface([
