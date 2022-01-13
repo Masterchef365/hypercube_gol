@@ -29,6 +29,11 @@ struct Opt {
     /// Number of dimensions
     #[structopt(short, long, default_value = "4")]
     n_dims: usize,
+
+
+    #[structopt(long, default_value = "0.1")]
+    vis_thresh: f32,
+
     /*
     /// The missing values on corners are true instead of false if this is set
     #[structopt(long)]
@@ -153,7 +158,7 @@ impl App<Opt> for GolCubeVisualizer {
                 [-v * 0.05, -v * 0.35, -v]
             }
         );
-        let cube_indices = golcube_tri_indices(&self.gol_cube, 0.05);
+        let cube_indices = golcube_tri_indices(&self.gol_cube, self.opt.vis_thresh);
         ctx.update_vertices(self.verts, &cube_vertices)?;
         ctx.update_indices(self.indices, &cube_indices)?;
 
