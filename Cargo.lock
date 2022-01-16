@@ -503,6 +503,7 @@ dependencies = [
  "idek",
  "rand",
  "structopt",
+ "tinyvec",
 ]
 
 [[package]]

@@ -2,6 +2,7 @@ use anyhow::Result;
 use idek::{prelude::*, IndexBuffer, MultiPlatformCamera};
 use rand::prelude::*;
 use structopt::StructOpt;
+use tinyvec::{ArrayVec, array_vec};
 
 #[derive(StructOpt, Default)]
 #[structopt(name = "Conway's Game of Life on da cube", about = "what do you think")]
@@ -564,6 +565,7 @@ impl<T> std::ops::IndexMut<(usize, usize)> for Square2DArray<T> {
     }
 }
 
+type FaceCoords = [(usize, (i32, i32)); MAX_DIMS];
 /// Index into a face `face_sel` from faces, possibly beyond width (in which case possibly several faces can be returned!
 pub fn overindex_face(
     u: i32,
@@ -571,14 +573,14 @@ pub fn overindex_face(
     face_sel: usize,
     faces: &[Face],
     width: usize,
-) -> Vec<(usize, (i32, i32))> {
+) -> ArrayVec<FaceCoords> {
     let out_of_bounds = |x: i32| x < 0 || x >= width as i32;
 
     match (out_of_bounds(u), out_of_bounds(v)) {
         // Indexing past a corner
-        (true, true) => vec![],
+        (true, true) => ArrayVec::new(),
         // In bounds
-        (false, false) => vec![(face_sel, (u, v))],
+        (false, false) => array_vec![FaceCoords => (face_sel, (u, v))],
         // Out of bounds
         (u_out_of_bounds, _) => {
             // Find all faces which:
