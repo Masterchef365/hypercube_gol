@@ -431,10 +431,11 @@ impl GolHypercube {
         face_sel: usize,
     ) -> ArrayVec<[f32; MAX_DIMS]> {
         let indices = overindex_face(u, v, face_sel, &self.faces, self.width);
-        indices
-            .into_iter()
-            .map(move |(face_idx, (u, v))| self.latest_state[face_idx][(u as usize, v as usize)])
-            .collect()
+        let mut out = ArrayVec::new();
+        for (face_idx, (u, v)) in indices {
+            out.push(self.latest_state[face_idx][(u as usize, v as usize)]);
+        }
+        out
     }
 
     pub fn overindex_set<'a>(&'a mut self, u: i32, v: i32, face_sel: usize, set: f32) {
@@ -467,8 +468,32 @@ impl GolHypercube {
         let c = 0.05; // Courant number
 
         for face_idx in 0..n_faces {
+            let current = &self.latest_state[face_idx];
+            let prev = &self.prev_state[face_idx];
+            let next = &mut self.next_state[face_idx];
+
+            // Faces
+            for u in 1..width - 1 {
+                for v in 1..width - 1 {
+                    let up = current[(u, v + 1)];
+                    let down = current[(u, v - 1)];
+                    let left = current[(u - 1, v)];
+                    let right = current[(u + 1, v)];
+                    let center = current[(u, v)];
+                    let prev = prev[(u, v)];
+                    next[(u, v)] = fdm_rules(c, center, up, down, left, right, prev, init);
+                }
+            }
+        }
+
+        for face_idx in 0..n_faces {
+            // Edges
             for u in 0..width {
                 for v in 0..width {
+                    if u + 1 < width && u > 0 && v + 1 < width && v > 0 {
+                        continue;
+                    }
+
                     let center = self.latest_state[face_idx][(u, v)];
                     let prev = self.prev_state[face_idx][(u, v)];
 
@@ -479,16 +504,7 @@ impl GolHypercube {
                     let right: f32 = avg_iter(&self.overindex(u + 1, v, face_idx));
                     let left: f32 = avg_iter(&self.overindex(u - 1, v, face_idx));
 
-
-                    let ddy = up - 2. * center + down;
-                    let ddx = right - 2. * center + left;
-
-                    // n = 1 special case
-                    let next = if init {
-                        center - 0.5 * c * (ddy + ddx)
-                    } else {
-                        -prev + 2. * center + 0.5 * c * (ddy + ddx)
-                    };
+                    let next = fdm_rules(c, center, up, down, left, right, prev, init);
 
                     self.overindex_set(u as i32, v as i32, face_idx, next);
                 }
@@ -498,6 +514,18 @@ impl GolHypercube {
         // Prev should be the oldest copy after this operation
         std::mem::swap(&mut self.latest_state, &mut self.next_state);
         std::mem::swap(&mut self.prev_state, &mut self.next_state);
+    }
+}
+
+fn fdm_rules(c: f32, center: f32, up: f32, down: f32, left: f32, right: f32, prev: f32, init: bool) -> f32 {
+    let ddy = up - 2. * center + down;
+    let ddx = right - 2. * center + left;
+
+    // n = 1 special case
+    if init {
+        center - 0.5 * c * (ddy + ddx)
+    } else {
+        -prev + 2. * center + 0.5 * c * (ddy + ddx)
     }
 }
 
