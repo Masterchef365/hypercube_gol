@@ -429,11 +429,12 @@ impl GolHypercube {
         u: i32,
         v: i32,
         face_sel: usize,
-    ) -> impl Iterator<Item = f32> + 'a {
+    ) -> ArrayVec<[f32; MAX_DIMS]> {
         let indices = overindex_face(u, v, face_sel, &self.faces, self.width);
         indices
             .into_iter()
             .map(move |(face_idx, (u, v))| self.latest_state[face_idx][(u as usize, v as usize)])
+            .collect()
     }
 
     pub fn overindex_set<'a>(&'a mut self, u: i32, v: i32, face_sel: usize, set: f32) {
@@ -472,11 +473,11 @@ impl GolHypercube {
                     let prev = self.prev_state[face_idx][(u, v)];
 
                     let (u, v) = (u as i32, v as i32);
-                    let up: f32 = avg_iter(self.overindex(u, v + 1, face_idx));
-                    let down: f32 = avg_iter(self.overindex(u, v - 1, face_idx));
+                    let up: f32 = avg_iter(&self.overindex(u, v + 1, face_idx));
+                    let down: f32 = avg_iter(&self.overindex(u, v - 1, face_idx));
 
-                    let right: f32 = avg_iter(self.overindex(u + 1, v, face_idx));
-                    let left: f32 = avg_iter(self.overindex(u - 1, v, face_idx));
+                    let right: f32 = avg_iter(&self.overindex(u + 1, v, face_idx));
+                    let left: f32 = avg_iter(&self.overindex(u - 1, v, face_idx));
 
 
                     let ddy = up - 2. * center + down;
@@ -500,21 +501,8 @@ impl GolHypercube {
     }
 }
 
-fn avg_iter(i: impl Iterator<Item=f32>) -> f32 {
-    let (sum, n) = i.fold((0., 0), |(sum, n), x| (sum + x, n + 1));
-    if n == 0 {
-        return 0.0;
-    } else {
-        sum / n as f32
-    }
-}
-
-fn extended_gol_rules(center: bool, neighbors: u32) -> bool {
-    match (center, neighbors) {
-        (true, n) if (n == 2 || n == 3) => true,
-        (false, n) if (n == 3) => true,
-        _ => false,
-    }
+fn avg_iter(i: &[f32]) -> f32 {
+    i.iter().sum::<f32>() / i.len() as f32
 }
 
 #[derive(Clone)]
