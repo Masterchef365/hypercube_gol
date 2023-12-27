@@ -4,13 +4,13 @@ Note: this program can currently only display N=3, N=4, and N=5, but the algorit
 
 `target/release/hypercube_gol -n 5 -w 100` (fdm branch):
 
-![waves2.png]
+![](waves2.png)
 
 `target/release/hypercube_gol -n 4 -w 100` (main branch):
 
-![waves.png]
+![](waves.png)
 
 `target/release/hypercube_gol -w 100` (main branch):
 
-![gol.png]
+![](gol.png)
 
